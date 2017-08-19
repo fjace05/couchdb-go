@@ -848,3 +848,45 @@ func (db *Database) SaveDesignDoc(name string,
 	return newRev, nil
 
 }
+
+//This may be helpful later.
+//type AllDocsQueryParams struct {
+//	Conflicts bool `json:"conflicts,omitempty"`
+//	Descending bool `json:"descending,omitempty"`
+//	EndKey string `json:"endkey,omitempty"`
+//	EndKeyDocId string `json:"endkey_docid,omitempty"`
+//	IncludeDocs bool `json:"include_docs,omitempty"`
+//	Key string `json:"key,omitempty"`
+//	Limit int `json:"limit,omitempty"`
+//	Skip int `json:"skip,omitempty"`
+//	Stale string `json:"state,omitempty"`
+//	StartKey string `json:"startkey,omitempty"`
+//	StartKeyDocId string `json:"startkey_docid,omitempty"`
+//	UpdateSeq bool `json:"update_seq,omitempty"`
+//
+//}
+
+func (db *Database) GetAllDocs(results interface{}, params *url.Values) error {
+	var err error
+	var url string
+	if params == nil {
+		url, err = buildUrl(db.dbName, "_all_docs")
+	} else {
+		url, err = buildParamUrl(*params, db.dbName, "_all_docs")
+	}
+	if err != nil {
+		return err
+	}
+	var headers = make(map[string]string)
+	headers["Accept"] = "application/json"
+	resp, err := db.connection.request("GET", url, nil, nil, db.auth)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	err = parseBody(resp, &results)
+	if err != nil {
+		return err
+	}
+	return nil
+}

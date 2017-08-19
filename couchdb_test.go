@@ -1,9 +1,8 @@
-package couchdb_test
+package couchdb
 
 import (
 	"bytes"
 	//"encoding/json"
-	"github.com/fjace05/couchdb-go"
 	"github.com/twinj/uuid"
 	"io/ioutil"
 	"math/rand"
@@ -11,14 +10,16 @@ import (
 	"strconv"
 	"testing"
 	"time"
-	"encoding/json"
+
+	"net/url"
+	"fmt"
 )
 
 var timeout = time.Duration(500 * time.Millisecond)
 var unittestdb = "unittestdb"
 var server = "127.0.0.1"
 var numDbs = 1
-var adminAuth = &couchdb.BasicAuth{Username: "adminuser", Password: "password"}
+var adminAuth = &BasicAuth{Username: "jace", Password: "Maverick04"}
 
 type TestDocument struct {
 	Title string
@@ -60,10 +61,6 @@ type ListResponse struct {
 	Rows      []ListResult `json:"rows,omitempty"`
 }
 
-type FindResponse struct {
-	Docs []TestDocument `json:"docs"`
-}
-
 type View struct {
 	Map    string `json:"map"`
 	Reduce string `json:"reduce,omitempty"`
@@ -80,8 +77,8 @@ func getUuid() string {
 	return uuid.Formatter(theUuid, uuid.FormatHex)
 }
 
-func getConnection(t *testing.T) *couchdb.Connection {
-	conn, err := couchdb.NewConnection(server, 5984, timeout)
+func getConnection(t *testing.T) *Connection {
+	conn, err := NewConnection(server, 5984, timeout)
 	if err != nil {
 		t.Logf("ERROR: %v", err)
 		t.Fail()
@@ -89,9 +86,9 @@ func getConnection(t *testing.T) *couchdb.Connection {
 	return conn
 }
 
-/*func getAuthConnection(t *testing.T) *couchdb.Connection {
-	auth := couchdb.Auth{Username: "adminuser", Password: "password"}
-	conn, err := couchdb.NewConnection(server, 5984, timeout)
+/*func getAuthConnection(t *testing.T) *Connection {
+	auth := Auth{Username: "adminuser", Password: "password"}
+	conn, err := NewConnection(server, 5984, timeout)
 	if err != nil {
 		t.Logf("ERROR: %v", err)
 		t.Fail()
@@ -124,7 +121,7 @@ func genRandomText(n int) string {
 	return string(b)
 }
 
-func createLotsDocs(t *testing.T, db *couchdb.Database) {
+func createLotsDocs(t *testing.T, db *Database) {
 	for i := 0; i < 10; i++ {
 		id := getUuid()
 		note := "purple"
@@ -154,7 +151,7 @@ func TestPing(t *testing.T) {
 }
 
 func TestBadPing(t *testing.T) {
-	conn, err := couchdb.NewConnection("unpingable", 1234, timeout)
+	conn, err := NewConnection("unpingable", 1234, timeout)
 	errorify(t, err)
 	pingErr := conn.Ping()
 	if pingErr == nil {
@@ -178,20 +175,22 @@ func TestGetDBList(t *testing.T) {
 
 func TestCreateDB(t *testing.T) {
 	conn := getConnection(t)
-	err := conn.CreateDB("testcreatedb", adminAuth)
+	name := "testcreatedb"
+	err := conn.CreateDB(name, adminAuth)
 	errorify(t, err)
+	if err != nil {
+		defer deleteTestDb(t, name)
+	}
 	//try to create it again --- should fail
-	err = conn.CreateDB("testcreatedb", adminAuth)
+	err = conn.CreateDB(name, adminAuth)
 	if err == nil {
 		t.Fail()
 	}
-	//now delete it
-	err = conn.DeleteDB("testcreatedb", adminAuth)
-	errorify(t, err)
 }
 
 func TestSave(t *testing.T) {
 	dbName := createTestDb(t)
+	defer deleteTestDb(t, dbName)
 	conn := getConnection(t)
 	//Create a new document
 	theDoc := TestDocument{
@@ -224,11 +223,11 @@ func TestSave(t *testing.T) {
 	if theDoc.Note != "A new note" {
 		t.Fail()
 	}
-	deleteTestDb(t, dbName)
 }
 
 func TestAttachment(t *testing.T) {
 	dbName := createTestDb(t)
+	defer deleteTestDb(t, dbName)
 	conn := getConnection(t)
 	//Create a new document
 	theDoc := TestDocument{
@@ -395,13 +394,13 @@ func TestUser(t *testing.T) {
 		t.Fail()
 	}
 	//check user can access db
-	db := conn.SelectDB(dbName, &couchdb.BasicAuth{"turd.ferguson", "password"})
+	db := conn.SelectDB(dbName, &BasicAuth{"turd.ferguson", "password"})
 	theId := getUuid()
 	docRev, err := db.Save(&TestDocument{Title: "My doc"}, theId, "")
 	errorify(t, err)
 	t.Logf("Granting role to user")
 	//check session info
-	authInfo, err := conn.GetAuthInfo(&couchdb.BasicAuth{"turd.ferguson", "password"})
+	authInfo, err := conn.GetAuthInfo(&BasicAuth{"turd.ferguson", "password"})
 	errorify(t, err)
 	t.Logf("AuthInfo: %v", authInfo)
 	if authInfo.UserCtx.Name != "turd.ferguson" {
@@ -413,7 +412,7 @@ func TestUser(t *testing.T) {
 	errorify(t, err)
 	t.Logf("Updated Rev: %v\n", rev)
 	//read the user
-	userData := couchdb.UserRecord{}
+	userData := UserRecord{}
 	rev, err = conn.GetUser("turd.ferguson", &userData, adminAuth)
 	errorify(t, err)
 	if len(userData.Roles) != 2 {
@@ -450,15 +449,15 @@ func TestSecurity(t *testing.T) {
 	dbName := createTestDb(t)
 	db := conn.SelectDB(dbName, adminAuth)
 
-	members := couchdb.Members{
+	members := Members{
 		Users: []string{"joe, bill"},
 		Roles: []string{"code monkeys"},
 	}
-	admins := couchdb.Members{
+	admins := Members{
 		Users: []string{"bossman"},
 		Roles: []string{"boss"},
 	}
-	security := couchdb.Security{
+	security := Security{
 		Members: members,
 		Admins:  admins,
 	}
@@ -672,40 +671,45 @@ func TestAngryCouch(t *testing.T) {
 }
 
 
-func TestFind(t *testing.T) {
-	conn := getConnection(t)
+func TestDatabase_GetAllDocs(t *testing.T) {
 	dbName := createTestDb(t)
-	db := conn.SelectDB(dbName, adminAuth)
-	createLotsDocs(t, db)
+	defer deleteTestDb(t, dbName)
 
-	selector := `{"Note": {"$eq": "magenta"}}`
-
-	var selectorObj interface{}
-
-	err := json.Unmarshal([]byte(selector), &selectorObj)
-
-	if err != nil {
-		errorify(t, err)
+	doc := &TestDocument{
+		Note: "Test",
 	}
 
-	//Get the results from find.
-	findResult := FindResponse{}
+	conn := getConnection(t)
+	db := conn.SelectDB(dbName, nil)
 
-	params := couchdb.FindQueryParams{Selector: &selectorObj}
+	docId := "testdoc"
 
-	err = db.Find(&findResult, &params)
+	_, err := db.Save(doc, docId, "")
 
-	if err != nil {
-		errorify(t, err)
+	errorify(t, err)
+	//Get the doc we just added by id
+	params := &url.Values{}
+	params.Add("startkey", fmt.Sprintf("\"%s\"", docId))
+
+	type AllDocsViewResult struct {
+		Id  string       `json:"id"`
+		Key string `json:"key"`
 	}
 
-	if len(findResult.Docs) != 5 {
-		t.Logf("Find Results Length: %v\n", len(findResult.Docs))
+	r := &struct {
+		TotalRows int          `json:"total_rows"`
+		Offset    int          `json:"offset"`
+		Rows      []AllDocsViewResult `json:"rows,omitempty"`
+	}{}
+
+	err = db.GetAllDocs(r, params)
+
+	errorify(t, err)
+
+	if len(r.Rows) != 1 {
+		t.Logf("Expected 1 returned doc, got %d", len(r.Rows))
 		t.Fail()
-	} else {
-		t.Logf("Results: %v\n", len(findResult.Docs))
 	}
 
-	deleteTestDb(t, dbName)
 
 }
