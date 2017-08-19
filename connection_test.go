@@ -63,12 +63,12 @@ func TestConnection(t *testing.T) {
 
 func TestBasicAuth(t *testing.T) {
 	client := &http.Client{}
-	auth := BasicAuth{Username: "adminuser", Password: "password"}
+	//auth := adminAuth
 	c := connection{
 		url:    serverUrl,
 		client: client,
 	}
-	resp, err := c.request("GET", "/", nil, nil, &auth)
+	resp, err := c.request("GET", "/", nil, nil, adminAuth)
 	if err != nil {
 		t.Logf("Error: %v", err)
 		t.Fail()
