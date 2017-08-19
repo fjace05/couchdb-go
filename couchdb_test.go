@@ -267,7 +267,6 @@ func TestAttachment(t *testing.T) {
 	dRev, err := db.DeleteAttachment(theId, uRev, "attachment")
 	errorify(t, err)
 	t.Logf("Deleted revision: %v\n", dRev)
-	deleteTestDb(t, dbName)
 }
 
 func TestRead(t *testing.T) {
