@@ -19,7 +19,7 @@ var timeout = time.Duration(500 * time.Millisecond)
 var unittestdb = "unittestdb"
 var server = "127.0.0.1"
 var numDbs = 1
-var adminAuth = &BasicAuth{Username: "jace", Password: "Maverick04"}
+var adminAuth = &BasicAuth{Username: "adminuser", Password: "password"}
 
 type TestDocument struct {
 	Title string
