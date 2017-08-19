@@ -178,14 +178,14 @@ func TestCreateDB(t *testing.T) {
 	name := "testcreatedb"
 	err := conn.CreateDB(name, adminAuth)
 	errorify(t, err)
-	if err != nil {
-		defer deleteTestDb(t, name)
-	}
+
 	//try to create it again --- should fail
 	err = conn.CreateDB(name, adminAuth)
 	if err == nil {
 		t.Fail()
 	}
+
+	conn.DeleteDB(name, adminAuth)
 }
 
 func TestSave(t *testing.T) {
@@ -535,8 +535,17 @@ func TestSessions(t *testing.T) {
 
 func TestSetConfig(t *testing.T) {
 	conn := getConnection(t)
-	err := conn.SetConfig("couch_httpd_auth", "timeout", "30", adminAuth)
+
+	section := "couch_httpd_auth"
+	key := "timeout"
+
+	//Store the orig value just to be nice
+	value, _ := conn.GetConfigOption(section, key, adminAuth)
+
+	err := conn.SetConfig(section, key, "30", adminAuth)
 	errorify(t, err)
+
+	conn.SetConfig(section, key, value, adminAuth)
 }
 
 func TestGetConfig(t *testing.T) {

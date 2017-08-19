@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"encoding/json"
 )
 
 type Connection struct{ *connection }
@@ -20,6 +21,10 @@ type Database struct {
 	dbName     string
 	connection *Connection
 	auth       Auth
+}
+
+type rev struct {
+	Rev string `json:"rev"`
 }
 
 //Creates a regular http connection.
@@ -114,6 +119,14 @@ func (conn *Connection) SetConfig(section string,
 		resp.Body.Close()
 	}
 	return err
+}
+
+/*
+An alias for SetConfig because it bothered me...
+ */
+func (conn *Connection) SetConfigOption(section string,
+	option string, value string, auth Auth) error {
+	return conn.SetConfig(section, option, value, auth)
 }
 
 //Gets a CouchDB configuration option
@@ -522,8 +535,17 @@ func (db *Database) SaveAttachment(docId string,
 	if err != nil {
 		return "", err
 	}
+	/*
+	It seems like the docs are incorrect and putting an attachment does not result in an ETAG. So the
+	revision must be obtained another way.
+	 */
+	newRev := &rev{}
+	err = json.NewDecoder(resp.Body).Decode(newRev)
+	if err != nil {
+		return "", err
+	}
 	resp.Body.Close()
-	return getRevInfo(resp)
+	return newRev.Rev, nil
 }
 
 //Gets an attachment.
@@ -579,8 +601,17 @@ func (db *Database) DeleteAttachment(docId string, docRev string,
 	if err != nil {
 		return "", err
 	}
+	/*
+	It seems like the docs are incorrect and putting an attachment does not result in an ETAG. So the
+	revision must be obtained another way.
+	 */
+	newRev := &rev{}
+	err = json.NewDecoder(resp.Body).Decode(newRev)
+	if err != nil {
+		return "", err
+	}
 	resp.Body.Close()
-	return getRevInfo(resp)
+	return newRev.Rev, nil
 }
 
 type Members struct {
