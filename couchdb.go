@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"encoding/json"
 )
 
 type Connection struct{ *connection }
@@ -22,7 +23,9 @@ type Database struct {
 	auth       Auth
 }
 
-
+type rev struct {
+	Rev string `json:"rev"`
+}
 
 //Creates a regular http connection.
 //Timeout sets the timeout for the http Client
@@ -104,9 +107,9 @@ func (conn *Connection) DeleteDB(name string, auth Auth) error {
 }
 
 //Set a CouchDB configuration option
-func (conn *Connection) SetConfig(section string,
+func (conn *Connection) SetConfig(node string, section string,
 	option string, value string, auth Auth) error {
-	url, err := buildUrl("_config", section, option)
+	url, err := buildUrl("_node", node, "_config", section, option)
 	if err != nil {
 		return err
 	}
@@ -119,9 +122,9 @@ func (conn *Connection) SetConfig(section string,
 }
 
 //Gets a CouchDB configuration option
-func (conn *Connection) GetConfigOption(section string,
+func (conn *Connection) GetConfigOption(node string, section string,
 	option string, auth Auth) (string, error) {
-	url, err := buildUrl("_config", section, option)
+	url, err := buildUrl("_node", node, "_config", section, option)
 	if err != nil {
 		return "", err
 	}
@@ -524,8 +527,17 @@ func (db *Database) SaveAttachment(docId string,
 	if err != nil {
 		return "", err
 	}
+	/*
+	It seems like the docs are incorrect and putting an attachment does not result in an ETAG. So the
+	revision must be obtained another way.
+	 */
+	newRev := &rev{}
+	err = json.NewDecoder(resp.Body).Decode(newRev)
+	if err != nil {
+		return "", err
+	}
 	resp.Body.Close()
-	return getRevInfo(resp)
+	return newRev.Rev, nil
 }
 
 //Gets an attachment.
@@ -581,8 +593,17 @@ func (db *Database) DeleteAttachment(docId string, docRev string,
 	if err != nil {
 		return "", err
 	}
+	/*
+	It seems like the docs are incorrect and putting an attachment does not result in an ETAG. So the
+	revision must be obtained another way.
+	 */
+	newRev := &rev{}
+	err = json.NewDecoder(resp.Body).Decode(newRev)
+	if err != nil {
+		return "", err
+	}
 	resp.Body.Close()
-	return getRevInfo(resp)
+	return newRev.Rev, nil
 }
 
 type Members struct {

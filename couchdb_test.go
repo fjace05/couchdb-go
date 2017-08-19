@@ -13,6 +13,7 @@ import (
 
 	"net/url"
 	"fmt"
+	"encoding/json"
 )
 
 var timeout = time.Duration(500 * time.Millisecond)
@@ -20,7 +21,7 @@ var unittestdb = "unittestdb"
 var server = "127.0.0.1"
 var numDbs = 1
 var adminAuth = &BasicAuth{Username: "jace", Password: "Maverick04"}
-
+var node = "couchdb@localhost"
 type TestDocument struct {
 	Title string
 	Note  string
@@ -178,14 +179,13 @@ func TestCreateDB(t *testing.T) {
 	name := "testcreatedb"
 	err := conn.CreateDB(name, adminAuth)
 	errorify(t, err)
-	if err != nil {
-		defer deleteTestDb(t, name)
-	}
 	//try to create it again --- should fail
 	err = conn.CreateDB(name, adminAuth)
 	if err == nil {
 		t.Fail()
 	}
+
+	err = conn.DeleteDB(name, adminAuth)
 }
 
 func TestSave(t *testing.T) {
@@ -267,7 +267,6 @@ func TestAttachment(t *testing.T) {
 	dRev, err := db.DeleteAttachment(theId, uRev, "attachment")
 	errorify(t, err)
 	t.Logf("Deleted revision: %v\n", dRev)
-	deleteTestDb(t, dbName)
 }
 
 func TestRead(t *testing.T) {
@@ -383,10 +382,15 @@ func TestDelete(t *testing.T) {
 
 func TestUser(t *testing.T) {
 	dbName := createTestDb(t)
+	defer deleteTestDb(t, dbName)
 	conn := getConnection(t)
+
+	newUser := "turd.ferguson"
+	newPassword := "password"
+
 	//Save a User
 	t.Logf("AdminAuth: %v\n", adminAuth)
-	rev, err := conn.AddUser("turd.ferguson",
+	rev, err := conn.AddUser(newUser,
 		"password", []string{"loser"}, adminAuth)
 	errorify(t, err)
 	t.Logf("User Rev: %v\n", rev)
@@ -394,54 +398,55 @@ func TestUser(t *testing.T) {
 		t.Fail()
 	}
 	//check user can access db
-	db := conn.SelectDB(dbName, &BasicAuth{"turd.ferguson", "password"})
+	db := conn.SelectDB(dbName, &BasicAuth{newUser, newPassword})
 	theId := getUuid()
 	docRev, err := db.Save(&TestDocument{Title: "My doc"}, theId, "")
 	errorify(t, err)
+	t.Logf("Test Document Revision: %s", docRev)
 	t.Logf("Granting role to user")
 	//check session info
-	authInfo, err := conn.GetAuthInfo(&BasicAuth{"turd.ferguson", "password"})
+	authInfo, err := conn.GetAuthInfo(&BasicAuth{newUser, newPassword})
 	errorify(t, err)
 	t.Logf("AuthInfo: %v", authInfo)
-	if authInfo.UserCtx.Name != "turd.ferguson" {
+	if authInfo.UserCtx.Name != newUser {
 		t.Errorf("UserCtx name wrong: %v", authInfo.UserCtx.Name)
 	}
 	//grant a role
-	rev, err = conn.GrantRole("turd.ferguson",
+	rev, err = conn.GrantRole(newUser,
 		"fool", adminAuth)
 	errorify(t, err)
 	t.Logf("Updated Rev: %v\n", rev)
 	//read the user
 	userData := UserRecord{}
-	rev, err = conn.GetUser("turd.ferguson", &userData, adminAuth)
+	rev, err = conn.GetUser(newUser, &userData, adminAuth)
 	errorify(t, err)
 	if len(userData.Roles) != 2 {
 		t.Error("Not enough roles")
 	}
 	t.Logf("Roles: %v", userData.Roles)
 	//check user can access db
-	docRev, err = db.Save(&TestDocument{Title: "My doc"}, getUuid(), docRev)
+	//This is a new doc, so we're not passing in a new docRev
+	docRev, err = db.Save(&TestDocument{Title: "My doc"}, getUuid(), "")
 	errorify(t, err)
 
 	//revoke a role
-	rev, err = conn.RevokeRole("turd.ferguson",
+	rev, err = conn.RevokeRole(newUser,
 		"loser", adminAuth)
 	errorify(t, err)
 	t.Logf("Updated Rev: %v\n", rev)
 	//read the user
-	rev, err = conn.GetUser("turd.ferguson", &userData, adminAuth)
+	rev, err = conn.GetUser(newUser, &userData, adminAuth)
 	errorify(t, err)
 	if len(userData.Roles) != 1 {
 		t.Error("should only be 1 role")
 	}
 	t.Logf("Roles: %v", userData.Roles)
-	dRev, err := conn.DeleteUser("turd.ferguson", rev, adminAuth)
+	dRev, err := conn.DeleteUser(newUser, rev, adminAuth)
 	errorify(t, err)
 	t.Logf("Del User Rev: %v\n", dRev)
 	if rev == dRev || dRev == "" {
 		t.Fail()
 	}
-	deleteTestDb(t, dbName)
 }
 
 func TestSecurity(t *testing.T) {
@@ -535,24 +540,34 @@ func TestSessions(t *testing.T) {
 
 func TestSetConfig(t *testing.T) {
 	conn := getConnection(t)
-	err := conn.SetConfig("couch_httpd_auth", "timeout", "30", adminAuth)
+
+	section := "couch_httpd_auth"
+	key := "timeout"
+
+	//Let's get the original value in case we're testing on a productionesque server
+	value, err := conn.GetConfigOption(node, section, key, adminAuth)
 	errorify(t, err)
+
+	err = conn.SetConfig(node, section, key, "30", adminAuth)
+	errorify(t, err)
+
+	conn.SetConfig(node, section, key, value, adminAuth)
 }
 
 func TestGetConfig(t *testing.T) {
 	conn := getConnection(t)
-	val, err := conn.GetConfigOption("couch_httpd_auth", "authentication_db", adminAuth)
+	val, err := conn.GetConfigOption(node, "couch_httpd_auth", "authentication_db", adminAuth)
 	errorify(t, err)
 	if val != "_users" {
 		t.Error("The auth db is wrong: %v", val)
 	}
 	t.Logf("The auth db is : %v", val)
-	val, err = conn.GetConfigOption("couch_httpd_auth", "auth_cache_size", adminAuth)
+	val, err = conn.GetConfigOption(node, "couch_httpd_auth", "auth_cache_size", adminAuth)
 	if val != "50" {
 		t.Error("The auth cache size is wrong: %v", val)
 	}
 	t.Logf("Auth cache size is : %v", val)
-	val, err = conn.GetConfigOption("httpd", "allow_jsonp", adminAuth)
+	val, err = conn.GetConfigOption(node, "httpd", "allow_jsonp", adminAuth)
 	if val != "false" {
 		t.Error("allow jsonp value is wrong: %v", val)
 	}
@@ -670,6 +685,46 @@ func TestAngryCouch(t *testing.T) {
 	errorify(t, err)
 }
 
+type FindResponse struct {
+	Docs []TestDocument `json:"docs"`
+}
+
+func TestFind(t *testing.T) {
+	conn := getConnection(t)
+	dbName := createTestDb(t)
+	defer deleteTestDb(t, dbName)
+	db := conn.SelectDB(dbName, adminAuth)
+	createLotsDocs(t, db)
+
+	selector := `{"Note": {"$eq": "magenta"}}`
+
+	var selectorObj interface{}
+
+	err := json.Unmarshal([]byte(selector), &selectorObj)
+
+	if err != nil {
+		errorify(t, err)
+	}
+
+	//Get the results from find.
+	findResult := FindResponse{}
+
+	params := FindQueryParams{Selector: &selectorObj}
+
+	err = db.Find(&findResult, &params)
+
+	if err != nil {
+		errorify(t, err)
+	}
+
+	if len(findResult.Docs) != 5 {
+		t.Logf("Find Results Length: %v\n", len(findResult.Docs))
+		t.Fail()
+	} else {
+		t.Logf("Results: %v\n", len(findResult.Docs))
+	}
+
+}
 
 func TestDatabase_GetAllDocs(t *testing.T) {
 	dbName := createTestDb(t)
